@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-// 🌐 OPTIONAL CLOUD DATABASE (For true cross-device live sync)
+// 🌐 CLOUD DATABASE PARAMETERS
+// Replace these placeholders with your real Supabase keys to launch the network pipeline!
 const SUPABASE_URL = "https://clkasjxfifakbmnmaskm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_xhrTQjJjCUYxZ7MURLLZwA_v983Oj79";
 
@@ -18,17 +19,13 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
-  // Dynamic Content States (Now including editable title settings)
+  // Dynamic Content States
   const [tournamentTitle, setTournamentTitle] = useState('Aeos Championship Series 2026');
   const [myTeam, setMyTeam] = useState(null); 
   const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
   const [messages, setMessages] = useState([]);
-  
-  // Dynamic Room Router State 
   const [selectedMatchId, setSelectedMatchId] = useState(null);
-
-  // Security Key Display Banner State
   const [generatedKeyReveal, setGeneratedKeyReveal] = useState(null);
 
   // Form Interaction Vectors
@@ -51,7 +48,6 @@ export default function App() {
         const { data: t } = await supabase.from('teams').select('*');
         const { data: m } = await supabase.from('matches').select('*');
         const { data: msg } = await supabase.from('messages').select('*').order('id', { ascending: true });
-        // Optional cloud settings hook for titles could sit here
         if (t) setTeams(t); if (m) setMatches(m); if (msg) setMessages(msg);
       };
       fetchCloudData();
@@ -196,14 +192,9 @@ export default function App() {
   };
 
   // ================= 🛡️ ADMIN ACTIONS =================
-  
-  // Extracted title edit logic to avoid compiler parsing hang
   const handleAdminTitleEdit = (newTitle) => {
     setTournamentTitle(newTitle);
     persistLocally('local_title', newTitle);
-    if (isDatabaseConfigured && supabase) {
-      // If you add a config table later, map update rules here
-    }
   };
 
   const handleAdminScoreEdit = (matchId, s1, s2) => {
@@ -264,11 +255,13 @@ export default function App() {
     <div className="min-h-screen bg-[#0c0f12] text-[#f3f4f6] font-sans antialiased">
       <header className="border-b border-[#202631] bg-[#13171e] px-6 py-3 flex flex-col lg:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4">
-          <span className="font-mono text-xs tracking-widest font-black px-2 py-1 rounded-sm text-white bg-amber-600">
-            LOCAL-LIVE
+          
+          {/* 🛠️ FIXED RESPONSIVE BADGE: It now reads your actual Supabase configurations! */}
+          <span className={`font-mono text-xs tracking-widest font-black px-2 py-1 rounded-sm text-white transition-all ${isDatabaseConfigured ? 'bg-green-600' : 'bg-amber-600'}`}>
+            {isDatabaseConfigured ? 'CLOUD-LIVE' : 'LOCAL-LIVE'}
           </span>
+          
           <div>
-            {/* The title is now dynamically fed by state variables */}
             <h1 className="text-md font-bold tracking-tight text-white">{tournamentTitle}</h1>
             <p className="text-[10px] font-mono text-[#9ca3af]">
               {myTeam ? `👑 TEAM SQUAD: ${myTeam.name}` : "👀 SYSTEM VIEW: SPECTATOR"}
@@ -455,7 +448,6 @@ export default function App() {
                   <button onClick={() => setIsAdminAuthenticated(false)} className="text-red-400 text-xs hover:underline font-mono">Lock Admin Node</button>
                 </div>
                 
-                {/* 🆕 THE TITLE EDITOR CONTROL FIELD BLOCK */}
                 <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-2">
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Platform Branding Title</label>
                   <input 
@@ -465,7 +457,6 @@ export default function App() {
                     placeholder="e.g., Aeos Winter Invitational 2026" 
                     className="w-full max-w-xl bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-sans font-bold focus:outline-none focus:border-[#0072ef]" 
                   />
-                  <p className="text-[10px] text-gray-500 italic">Editing this text modifies layout templates for all concurrent spectators instantly.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-4">
