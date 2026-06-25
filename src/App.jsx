@@ -19,17 +19,25 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
-  // Tournament Layout & Structure Configuration States
-  const [tournamentTitle, setTournamentTitle] = useState('Aeos Championship Series 2026');
-  const [tournamentFormat, setTournamentFormat] = useState('hybrid'); // 'hybrid' vs 'all-de'
-  
   // Dynamic Content Matrices
+  const [tournamentTitle, setTournamentTitle] = useState('Aeos Championship Series 2026');
+  const [phases, setPhases] = useState([
+    { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3 },
+    { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5 }
+  ]);
   const [myTeam, setMyTeam] = useState(null); 
   const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
   const [messages, setMessages] = useState([]);
+  
+  // Dynamic Space Allocation Hooks
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [generatedKeyReveal, setGeneratedKeyReveal] = useState(null);
+
+  // Phase Creator Form Hooks
+  const [phaseFormName, setPhaseFormName] = useState('');
+  const [phaseFormFormat, setPhaseFormFormat] = useState('Single Elimination');
+  const [phaseFormBestOf, setPhaseFormBestOf] = useState(3);
 
   // Form Interaction Vectors
   const [newTeamName, setNewTeamName] = useState('');
@@ -74,20 +82,20 @@ export default function App() {
       const localMatches = localStorage.getItem('local_matches');
       const localMessages = localStorage.getItem('local_messages');
       const localTitle = localStorage.getItem('local_title');
-      const localFormat = localStorage.getItem('local_format');
+      const localPhases = localStorage.getItem('local_phases');
 
       if (localTeams) setTeams(JSON.parse(localTeams));
       if (localMatches) setMatches(JSON.parse(localMatches));
       if (localMessages) setMessages(JSON.parse(localMessages));
       if (localTitle) setTournamentTitle(localTitle);
-      if (localFormat) setTournamentFormat(localFormat);
+      if (localPhases) setPhases(JSON.parse(localPhases));
 
       const syncTabs = (e) => {
         if (e.key === 'local_teams' && e.newValue) setTeams(JSON.parse(e.newValue));
         if (e.key === 'local_matches' && e.newValue) setMatches(JSON.parse(e.newValue));
         if (e.key === 'local_messages' && e.newValue) setMessages(JSON.parse(e.newValue));
         if (e.key === 'local_title' && e.newValue) setTournamentTitle(e.newValue);
-        if (e.key === 'local_format' && e.newValue) setTournamentFormat(e.newValue);
+        if (e.key === 'local_phases' && e.newValue) setPhases(JSON.parse(e.newValue));
       };
       window.addEventListener('storage', syncTabs);
       return () => window.removeEventListener('storage', syncTabs);
@@ -203,11 +211,6 @@ export default function App() {
     persistLocally('local_title', newTitle);
   };
 
-  const handleAdminFormatEdit = (newFormat) => {
-    setTournamentFormat(newFormat);
-    persistLocally('local_format', newFormat);
-  };
-
   const handleAdminScoreEdit = (matchId, s1, s2) => {
     const score1Val = parseInt(s1) || 0;
     const score2Val = parseInt(s2) || 0;
@@ -219,8 +222,44 @@ export default function App() {
     }
   };
 
-  // Automated Algorithmic Pairing Compiler Engine
-  const adminCompileFormations = async (targetStageLabel) => {
+  // Phase Matrix Manipulation Handlers
+  const handleAdminAddPhase = (e) => {
+    e.preventDefault();
+    if (!phaseFormName.trim()) return;
+
+    const newPhase = {
+      id: 'p_' + Date.now(),
+      name: phaseFormName,
+      format: phaseFormFormat,
+      bestOf: parseInt(phaseFormBestOf)
+    };
+
+    const updatedPhases = [...phases, newPhase];
+    setPhases(updatedPhases);
+    persistLocally('local_phases', updatedPhases);
+    
+    setPhaseFormName('');
+    alert(`🆕 Custom Stage: "${newPhase.name}" added to layout configurations!`);
+  };
+
+  const handleAdminDeletePhase = (phaseId) => {
+    if (!window.confirm("Are you sure you want to delete this phase? All matches generated inside it will be removed.")) return;
+    
+    const updatedPhases = phases.filter(p => p.id !== phaseId);
+    setPhases(updatedPhases);
+    persistLocally('local_phases', updatedPhases);
+
+    // Wipe out dependent matches from the viewports
+    if (USE_CLOUD_DATABASE && supabase) {
+      supabase.from('matches').delete().eq('status', phaseId); // Storing phase reference mapping token safely
+    } else {
+      const updatedMatches = matches.filter(m => m.statusLabel !== phaseId);
+      setMatches(updatedMatches);
+      persistLocally('local_matches', updatedMatches);
+    }
+  };
+
+  const adminCompileFormations = async (phaseObj) => {
     if (teams.length < 2) { alert("Insufficient parameters. Enlist at least 2 teams."); return; }
 
     const generatedMatches = [];
@@ -232,7 +271,7 @@ export default function App() {
           score1: 0, 
           score2: 0, 
           status: "Ongoing",
-          statusLabel: targetStageLabel // Attaches specific Phase tracking metadata
+          statusLabel: phaseObj.id // Ties the match to this precise custom phase identifier token
         });
       } else if (teams[i]) {
         generatedMatches.push({ 
@@ -241,25 +280,23 @@ export default function App() {
           score1: 1, 
           score2: 0, 
           status: "Completed",
-          statusLabel: targetStageLabel
+          statusLabel: phaseObj.id
         });
       }
     }
 
     if (USE_CLOUD_DATABASE && supabase) {
-      // Clean target stage data rows to avoid redundancy overlaps
-      await supabase.from('matches').delete().eq('statusLabel', targetStageLabel);
+      await supabase.from('matches').delete().eq('statusLabel', phaseObj.id);
       const { error } = await supabase.from('matches').insert(generatedMatches);
-      if (error) alert("Error connecting to cloud: " + error.message);
+      if (error) alert("Error connecting to cloud database: " + error.message);
     } else {
-      // Append or replace local memory structures depending on deployment stage
       let matchCounter = 101;
       const timedMatches = generatedMatches.map((m, idx) => ({ ...m, id: 'm_' + (matchCounter++ + matches.length + idx) }));
-      const updatedMatches = [...matches.filter(m => m.statusLabel !== targetStageLabel), ...timedMatches];
+      const updatedMatches = [...matches.filter(m => m.statusLabel !== phaseObj.id), ...timedMatches];
       setMatches(updatedMatches);
       persistLocally('local_matches', updatedMatches);
     }
-    alert(`⚡ Successfully populated bracket pairings for [ ${targetStageLabel} ]!`);
+    alert(`⚡ Pairings built for [ ${phaseObj.name} ] using ${phaseObj.format} (BO${phaseObj.bestOf}) settings!`);
   };
 
   const adminClearAll = async () => {
@@ -272,7 +309,10 @@ export default function App() {
       localStorage.clear();
       setTeams([]); setMatches([]); setMessages([]); setMyTeam(null); setGeneratedKeyReveal(null); setSelectedMatchId(null);
       setTournamentTitle('Aeos Championship Series 2026');
-      setTournamentFormat('hybrid');
+      setPhases([
+        { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3 },
+        { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5 }
+      ]);
       alert("Database wiped clean.");
     }
   };
@@ -388,16 +428,18 @@ export default function App() {
               </div>
             )}
 
-            {/* DYNAMIC LAYOUT CATEGORIZATIONS FILTER BLOCKS */}
-            {['Phase 1: Swiss Qualifiers', 'Phase 2: Double Elimination Stage', 'Master Double Elimination Bracket'].map((stageLabel) => {
-              const stageMatches = matches.filter(m => m.statusLabel === stageLabel || (!m.statusLabel && stageLabel === 'Phase 1: Swiss Qualifiers'));
+            {/* ADAPTIVE LOOP: Pulls custom phase nodes dynamically */}
+            {phases.map((phase) => {
+              const stageMatches = matches.filter(m => m.statusLabel === phase.id);
               if (stageMatches.length === 0) return null;
 
               return (
-                <div key={stageLabel} className="space-y-4 animate-fadeIn">
+                <div key={phase.id} className="space-y-4 animate-fadeIn">
                   <div className="bg-[#13171e] border border-[#202631] p-4 rounded text-xs font-bold uppercase tracking-wider text-purple-400 flex justify-between items-center">
-                    <span>{stageLabel}</span>
-                    <span className="bg-[#0c0f12] text-[10px] px-2 py-0.5 rounded text-gray-500 font-mono">{stageMatches.length} Matches</span>
+                    <span>{phase.name}</span>
+                    <span className="bg-[#0c0f12] text-[10px] px-2 py-0.5 rounded text-gray-400 font-mono">
+                      {phase.format} • Best of {phase.bestOf}
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -433,6 +475,7 @@ export default function App() {
               const currentMatch = getCurrentActiveMatch();
               if (!currentMatch) return null;
               
+              const parentPhase = phases.find(p => p.id === currentMatch.statusLabel);
               const authorizedUser = myTeam && (myTeam.name === currentMatch.team1 || myTeam.name === currentMatch.team2);
 
               return (
@@ -440,7 +483,10 @@ export default function App() {
                   <div className="lg:col-span-2 bg-[#13171e] border border-[#202631] rounded flex flex-col h-[520px]">
                     <div className="bg-[#191f29] p-3 text-xs font-bold border-b border-[#202631]">
                       <span className="text-white block">Real-Time Match Chat Comms</span>
-                      <span className="text-[10px] font-mono text-[#9ca3af]">{currentMatch.team1} vs {currentMatch.team2} <span className="text-purple-400">({currentMatch.statusLabel || 'Phase 1'})</span></span>
+                      <span className="text-[10px] font-mono text-[#9ca3af]">
+                        {currentMatch.team1} vs {currentMatch.team2} 
+                        <span className="text-purple-400 ml-1">({parentPhase ? parentPhase.name : 'Active Phase'})</span>
+                      </span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0c0f12]/50 text-xs font-mono">
                       {messages.filter(msg => String(msg.matchId) === String(currentMatch.id)).map((msg, idx) => (
@@ -496,63 +542,93 @@ export default function App() {
                   <button onClick={() => setIsAdminAuthenticated(false)} className="text-red-400 text-xs hover:underline font-mono">Lock Admin Node</button>
                 </div>
                 
-                {/* DYNAMIC TITLE CONTROLLER SECTION */}
+                {/* DYNAMIC TITLE CONTROLLER */}
                 <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-2">
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Branding Title</label>
-                  <input type="text" value={tournamentTitle} onChange={(e) => handleAdminTitleEdit(e.target.value)} className="w-full max-w-xl bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#0072ef]" />
+                  <input type="text" value={tournamentTitle} onChange={(e) => handleAdminTitleEdit(e.target.value)} className="w-full max-w-xl bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-bold focus:outline-none" />
                 </div>
 
-                {/* DYNAMIC FORMAT CHANGER SYSTEM DROPDOWN */}
-                <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-2">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Bracket Format Pipeline</label>
-                  <select 
-                    value={tournamentFormat} 
-                    onChange={(e) => handleAdminFormatEdit(e.target.value)}
-                    className="bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#0072ef] cursor-pointer"
-                  >
-                    <option value="hybrid">Phase 1: Swiss Qualifiers ➔ Phase 2: Double Elimination Stage</option>
-                    <option value="all-de">All Tournament: Master Double Elimination Bracket</option>
-                  </select>
-                </div>
-
-                {/* ADAPTIVE ACTION TRIGGER BUTTONS GRID */}
-                <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-4">
-                  <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Pairing Compilation Matrix Controllers</h4>
+                {/* 🆕 LIVE CUSTOM PHASE MANAGER BUILDER */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start border border-[#202631] p-4 rounded bg-[#0c0f12]">
                   
-                  <div className="flex flex-wrap gap-4">
-                    {tournamentFormat === 'hybrid' ? (
-                      <>
-                        <button onClick={() => adminCompileFormations('Phase 1: Swiss Qualifiers')} className="bg-[#0072ef] hover:bg-[#0061cb] text-white text-xs font-bold px-4 py-2.5 rounded font-mono transition">
-                          🎲 Compile Phase 1: Swiss Pools
-                        </button>
-                        <button onClick={() => adminCompileFormations('Phase 2: Double Elimination Stage')} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-2.5 rounded font-mono transition">
-                          🏆 Compile Phase 2: Double Elimination Bracket
-                        </button>
-                      </>
-                    ) : (
-                      <button onClick={() => adminCompileFormations('Master Double Elimination Bracket')} className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold px-4 py-2.5 rounded font-mono transition">
-                        💥 Compile Master Double Elimination Bracket
-                      </button>
-                    )}
+                  {/* Submodule A: Creation Inputs Panel */}
+                  <form onSubmit={handleAdminAddPhase} className="space-y-3 lg:border-r lg:border-[#202631] lg:pr-6">
+                    <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wide">➕ Construct Custom Phase</h4>
+                    
+                    <div>
+                      <label className="block text-[9px] text-gray-400 uppercase mb-1">Stage Name Label</label>
+                      <input type="text" required placeholder="e.g., Phase 3: Top 8 Final Grid" value={phaseFormName} onChange={(e) => setPhaseFormName(e.target.value)} className="w-full bg-[#13171e] border border-[#202631] text-xs px-2.5 py-1.5 rounded text-white focus:outline-none" />
+                    </div>
 
-                    <button onClick={adminClearAll} className="bg-red-950 border border-red-900 text-red-400 text-xs font-bold px-4 py-2.5 rounded hover:bg-red-900 transition font-mono">
-                      🚨 Clear Cloud Ledgers
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="space-y-3 pt-4">
-                  <h4 className="text-xs font-bold uppercase text-gray-400">Direct Bracket Match Overrider</h4>
-                  {matches.length === 0 && <p className="text-xs italic text-gray-600">No generated matches found to override.</p>}
-                  {matches.map((m) => (
-                    <div key={m.id} className="p-3 bg-[#0c0f12] rounded border border-[#202631] flex justify-between items-center text-xs font-mono">
-                      <span className="truncate max-w-xs">{m.team1} vs {m.team2} <span className="text-purple-500 text-[10px]">({m.statusLabel || 'P1'})</span></span>
-                      <div className="flex gap-2">
-                        <input type="number" value={m.score1} onChange={(e) => handleAdminScoreEdit(m.id, e.target.value, m.score2)} className="w-12 bg-[#13171e] text-center py-0.5 border text-white focus:outline-none focus:border-[#0072ef]" />
-                        <input type="number" value={m.score2} onChange={(e) => handleAdminScoreEdit(m.id, m.score1, e.target.value)} className="w-12 bg-[#13171e] text-center py-0.5 border text-white focus:outline-none focus:border-[#0072ef]" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] text-gray-400 uppercase mb-1">Bracket Structure</label>
+                        <select value={phaseFormFormat} onChange={(e) => setPhaseFormFormat(e.target.value)} className="w-full bg-[#13171e] border border-[#202631] text-xs p-1.5 rounded text-white focus:outline-none">
+                          <option value="Single Elimination">Single Elimination</option>
+                          <option value="Double Elimination">Double Elimination</option>
+                          <option value="Swiss">Swiss</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] text-gray-400 uppercase mb-1">Match Metrics</label>
+                        <select value={phaseFormBestOf} onChange={(e) => setPhaseFormBestOf(e.target.value)} className="w-full bg-[#13171e] border border-[#202631] text-xs p-1.5 rounded text-white focus:outline-none">
+                          <option value={1}>Best of 1</option>
+                          <option value={3}>Best of 3</option>
+                          <option value={5}>Best of 5</option>
+                        </select>
                       </div>
                     </div>
-                  ))}
+
+                    <button type="submit" className="w-full bg-[#0072ef] text-white text-xs font-bold py-1.5 rounded font-mono uppercase tracking-wide transition">
+                      Build Phase Node
+                    </button>
+                  </form>
+
+                  {/* Submodule B: Interactive Operational Stage Ledger */}
+                  <div className="lg:col-span-2 space-y-3">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide">📐 Active Blueprint Layouts Matrix</h4>
+                    <div className="divide-y divide-[#202631] max-h-48 overflow-y-auto pr-2">
+                      {phases.map((phase) => (
+                        <div key={phase.id} className="py-2.5 flex justify-between items-center text-xs font-mono">
+                          <div>
+                            <span className="text-white font-sans font-bold block">{phase.name}</span>
+                            <span className="text-[10px] text-gray-500">{phase.format} • BO{phase.bestOf} format configuration</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => adminCompileFormations(phase)} className="bg-emerald-950 text-emerald-400 border border-emerald-900 hover:bg-emerald-900 hover:text-white px-2 py-1 rounded text-[10px] font-bold transition">
+                              ⚡ Pair Matchups
+                            </button>
+                            <button onClick={() => handleAdminDeletePhase(phase.id)} className="bg-red-950 text-red-400 border border-red-900 hover:bg-red-900 hover:text-white px-2 py-1 rounded text-[10px] font-bold transition">
+                              ✕ Drop
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button onClick={adminClearAll} className="bg-red-950 border border-red-900 text-red-400 text-xs font-bold px-4 py-2 rounded hover:bg-red-900 transition font-mono">
+                    🚨 Wipe Cloud Cluster Ledgers
+                  </button>
+                </div>
+                
+                <div className="space-y-3 pt-4 border-t border-[#202631]">
+                  <h4 className="text-xs font-bold uppercase text-gray-400">Direct Bracket Match Overrider</h4>
+                  {matches.length === 0 && <p className="text-xs italic text-gray-600">No generated matches found to override.</p>}
+                  {matches.map((m) => {
+                    const matchPhase = phases.find(p => p.id === m.statusLabel);
+                    return (
+                      <div key={m.id} className="p-3 bg-[#0c0f12] rounded border border-[#202631] flex justify-between items-center text-xs font-mono">
+                        <span className="truncate max-w-xs">{m.team1} vs {m.team2} <span className="text-purple-500 text-[10px]">({matchPhase ? matchPhase.name.split(':')[0] : 'P1'})</span></span>
+                        <div className="flex gap-2">
+                          <input type="number" value={m.score1} onChange={(e) => handleAdminScoreEdit(m.id, e.target.value, m.score2)} className="w-12 bg-[#13171e] text-center py-0.5 border text-white focus:outline-none focus:border-[#0072ef]" />
+                          <input type="number" value={m.score2} onChange={(e) => handleAdminScoreEdit(m.id, m.score1, e.target.value)} className="w-12 bg-[#13171e] text-center py-0.5 border text-white focus:outline-none focus:border-[#0072ef]" />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
