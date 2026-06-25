@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 
 // 🌐 OPTIONAL CLOUD DATABASE (For true cross-device live sync)
-const SUPABASE_URL = "https://your-project-url.supabase.co";
-const SUPABASE_ANON_KEY = "your-actual-anon-public-key";
+const SUPABASE_URL = "https://clkasjxfifakbmnmaskm.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_xhrTQjJjCUYxZ7MURLLZwA_v983Oj79";
 
 const isDatabaseConfigured = !SUPABASE_URL.includes("your-project-url") && SUPABASE_URL !== "";
 let supabase = null;
