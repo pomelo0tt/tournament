@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 // 🌐 MASTER DATABASE CONFIGURATION
 const USE_CLOUD_DATABASE = true; 
 
-// Drop your real Supabase credentials inside these quotation marks
 const SUPABASE_URL = "https://clkasjxfifakbmnmaskm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_xhrTQjJjCUYxZ7MURLLZwA_v983Oj79";
 
@@ -19,7 +18,7 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
-  // Dynamic Content Matrices
+  // Tournament Blueprint Layout States
   const [tournamentTitle, setTournamentTitle] = useState('Aeos Championship Series 2026');
   const [phases, setPhases] = useState([
     { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3 },
@@ -30,17 +29,17 @@ export default function App() {
   const [matches, setMatches] = useState([]);
   const [messages, setMessages] = useState([]);
   
-  // Dynamic Space Allocation Hooks
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [generatedKeyReveal, setGeneratedKeyReveal] = useState(null);
 
-  // Phase Creator Form Hooks
+  // Phase Forms
   const [phaseFormName, setPhaseFormName] = useState('');
   const [phaseFormFormat, setPhaseFormFormat] = useState('Single Elimination');
   const [phaseFormBestOf, setPhaseFormBestOf] = useState(3);
 
-  // Form Interaction Vectors
+  // Scores, Chat & Team Inputs
   const [newTeamName, setNewTeamName] = useState('');
+  const [teamCodeInput, setTeamCodeInput] = useState(''); 
   const [playerInputs, setPlayerInputs] = useState(['', '', '', '', '']);
   const [subInputs, setSubInputs] = useState(['', '', '']); 
   const [chatInput, setChatInput] = useState('');
@@ -53,6 +52,11 @@ export default function App() {
   useEffect(() => {
     const cachedTeam = localStorage.getItem('unite_user_team');
     if (cachedTeam) { try { setMyTeam(JSON.parse(cachedTeam)); } catch(e) {} }
+
+    const localTitle = localStorage.getItem('local_title');
+    const localPhases = localStorage.getItem('local_phases');
+    if (localTitle) setTournamentTitle(localTitle);
+    if (localPhases) setPhases(JSON.parse(localPhases));
 
     if (USE_CLOUD_DATABASE && supabase) {
       const fetchCloudData = async () => {
@@ -81,14 +85,10 @@ export default function App() {
       const localTeams = localStorage.getItem('local_teams');
       const localMatches = localStorage.getItem('local_matches');
       const localMessages = localStorage.getItem('local_messages');
-      const localTitle = localStorage.getItem('local_title');
-      const localPhases = localStorage.getItem('local_phases');
 
       if (localTeams) setTeams(JSON.parse(localTeams));
       if (localMatches) setMatches(JSON.parse(localMatches));
       if (localMessages) setMessages(JSON.parse(localMessages));
-      if (localTitle) setTournamentTitle(localTitle);
-      if (localPhases) setPhases(JSON.parse(localPhases));
 
       const syncTabs = (e) => {
         if (e.key === 'local_teams' && e.newValue) setTeams(JSON.parse(e.newValue));
@@ -120,50 +120,46 @@ export default function App() {
     return matches[0];
   };
 
-  // ================= 📊 LIVE REAL-TIME RANKING LOGIC =================
-  const calculateLiveRankings = () => {
-    return teams.map((team) => {
-      let matchesPlayed = 0;
-      let wins = 0;
-      let losses = 0;
-      let totalPointsScored = 0;
+  // ================= 📈 ALGORITHMIC RANKING COMPILER =================
+  const computeStandingsRankings = () => {
+    const registryMap = {};
+    teams.forEach(t => {
+      registryMap[t.name] = { name: t.name, wins: 0, losses: 0, played: 0, totalBattlePoints: 0, roster: t.players };
+    });
 
-      matches.forEach((m) => {
-        if (m.status === 'Completed') {
-          if (m.team1 === team.name) {
-            matchesPlayed++;
-            totalPointsScored += m.score1;
-            if (m.score1 > m.score2) wins++;
-            else losses++;
-          } else if (m.team2 === team.name) {
-            matchesPlayed++;
-            totalPointsScored += m.score2;
-            if (m.score2 > m.score1) wins++;
-            else losses++;
-          }
+    matches.forEach(m => {
+      if (m.status === "Completed") {
+        if (!registryMap[m.team1]) registryMap[m.team1] = { name: m.team1, wins: 0, losses: 0, played: 0, totalBattlePoints: 0, roster: [] };
+        if (!registryMap[m.team2]) registryMap[m.team2] = { name: m.team2, wins: 0, losses: 0, played: 0, totalBattlePoints: 0, roster: [] };
+
+        const s1 = Number(m.score1) || 0;
+        const s2 = Number(m.score2) || 0;
+
+        registryMap[m.team1].played += 1;
+        registryMap[m.team2].played += 1;
+        registryMap[m.team1].totalBattlePoints += s1;
+        registryMap[m.team2].totalBattlePoints += s2;
+
+        if (s1 > s2) {
+          registryMap[m.team1].wins += 1;
+          registryMap[m.team2].losses += 1;
+        } else if (s2 > s1) {
+          registryMap[m.team2].wins += 1;
+          registryMap[m.team1].losses += 1;
         }
-      });
+      }
+    });
 
-      const winRate = matchesPlayed > 0 ? Math.round((wins / matchesPlayed) * 100) : 0;
-
-      return {
-        ...team,
-        played: matchesPlayed,
-        wins,
-        losses,
-        points: totalPointsScored,
-        winRate
-      };
-    }).sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.points - a.points);
+    return Object.values(registryMap).sort((a, b) => b.wins - a.wins || b.totalBattlePoints - a.totalBattlePoints);
   };
 
-  // ================= 🔥 DYNAMIC OPERATIONS =================
+  // ================= 🔥 LIVE CLOUD INTERACTS =================
   const handleRegisterTeam = async (e) => {
     e.preventDefault();
-    if (!newTeamName.trim() || playerInputs.some(p => !p.trim())) return;
+    if (!newTeamName.trim() || !teamCodeInput.trim() || playerInputs.some(p => !p.trim())) return;
 
     const activeSubs = subInputs.filter(sub => sub.trim() !== '');
-    const secureAccessKey = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const secureAccessKey = teamCodeInput.trim().toUpperCase();
 
     const teamPayload = { 
       id: 't_' + Date.now(), 
@@ -189,9 +185,530 @@ export default function App() {
 
     setGeneratedKeyReveal({ name: newTeamName, key: secureAccessKey });
     setNewTeamName('');
+    setTeamCodeInput(''); 
     setPlayerInputs(['', '', '', '', '']);
     setSubInputs(['', '', '']);
   };
 
   const handleSendMessage = async (currentMatchId) => {
-    if (!chatInput.trim() ||
+    if (!chatInput.trim() || !myTeam || !currentMatchId) return;
+
+    const msgPayload = { 
+      matchId: String(currentMatchId), 
+      sender: myTeam.name, 
+      text: chatInput, 
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+    };
+
+    if (USE_CLOUD_DATABASE && supabase) {
+      await supabase.from('messages').insert([msgPayload]);
+    } else {
+      const updatedMsg = [...messages, msgPayload];
+      setMessages(updatedMsg);
+      persistLocally('local_messages', updatedMsg);
+    }
+    setChatInput('');
+  };
+
+  const handlePlayerSubmitScore = async (matchId) => {
+    if (USE_CLOUD_DATABASE && supabase) {
+      await supabase.from('matches').update({ score1: playerScore1, score2: playerScore2, status: "Completed" }).eq('id', matchId);
+    } else {
+      const updatedMatches = matches.map(m => m.id === matchId ? { ...m, score1: playerScore1, score2: playerScore2, status: "Completed" } : m);
+      setMatches(updatedMatches);
+      persistLocally('local_matches', updatedMatches);
+    }
+    alert("Score count pipeline broadcast complete!");
+  };
+
+  const handleSecureClaimIdentity = (teamObj) => {
+    const userInputCode = window.prompt(`🔒 SECURITY CHECK: Enter the access code for "${teamObj.name}" to link this profile to your device:`);
+    if (userInputCode === null) return;
+    
+    if (userInputCode.trim().toUpperCase() === teamObj.accessKey.toUpperCase()) {
+      setMyTeam(teamObj);
+      localStorage.setItem('unite_user_team', JSON.stringify(teamObj));
+      alert(`✅ ACCESS GRANTED: Device linked successfully.`);
+    } else {
+      alert("❌ ACCESS DENIED: Invalid Team Access Code.");
+    }
+  };
+
+  // ================= 🛡️ ADMIN CORE HANDLERS =================
+  const handleAdminTitleEdit = (newTitle) => {
+    setTournamentTitle(newTitle);
+    persistLocally('local_title', newTitle);
+  };
+
+  const handleAdminScoreEdit = (matchId, s1, s2) => {
+    const score1Val = parseInt(s1) || 0;
+    const score2Val = parseInt(s2) || 0;
+    const updated = matches.map(match => match.id === matchId ? { ...match, score1: score1Val, score2: score2Val, status: "Completed" } : match);
+    setMatches(updated); 
+    persistLocally('local_matches', updated);
+    if (USE_CLOUD_DATABASE && supabase) {
+      supabase.from('matches').update({ score1: score1Val, score2: score2Val, status: "Completed" }).eq('id', matchId);
+    }
+  };
+
+  const handleAdminAddPhase = (e) => {
+    e.preventDefault();
+    if (!phaseFormName.trim()) return;
+
+    const newPhase = { id: 'p_' + Date.now(), name: phaseFormName, format: phaseFormFormat, bestOf: parseInt(phaseFormBestOf) };
+    const updatedPhases = [...phases, newPhase];
+    setPhases(updatedPhases);
+    persistLocally('local_phases', updatedPhases);
+    setPhaseFormName('');
+    alert(`🆕 Custom Stage: "${newPhase.name}" added!`);
+  };
+
+  const handleAdminDeletePhase = (phaseId) => {
+    if (!window.confirm("Delete this phase? All internal matchups inside it will drop.")) return;
+    const updatedPhases = phases.filter(p => p.id !== phaseId);
+    setPhases(updatedPhases);
+    persistLocally('local_phases', updatedPhases);
+
+    if (USE_CLOUD_DATABASE && supabase) {
+      supabase.from('matches').delete().eq('statusLabel', phaseId);
+    } else {
+      const updatedMatches = matches.filter(m => m.statusLabel !== phaseId);
+      setMatches(updatedMatches);
+      persistLocally('local_matches', updatedMatches);
+    }
+  };
+
+  const adminCompileFormations = async (phaseObj) => {
+    if (teams.length < 2) { alert("Insufficient parameters. Enlist at least 2 teams."); return; }
+
+    const generatedMatches = [];
+    for (let i = 0; i < teams.length; i += 2) {
+      if (teams[i] && teams[i + 1]) {
+        generatedMatches.push({ team1: teams[i].name, team2: teams[i + 1].name, score1: 0, score2: 0, status: "Ongoing", statusLabel: phaseObj.id });
+      } else if (teams[i]) {
+        generatedMatches.push({ team1: teams[i].name, team2: "BYE SLOTS", score1: 1, score2: 0, status: "Completed", statusLabel: phaseObj.id });
+      }
+    }
+
+    if (USE_CLOUD_DATABASE && supabase) {
+      await supabase.from('matches').delete().eq('statusLabel', phaseObj.id);
+      await supabase.from('matches').insert(generatedMatches);
+    } else {
+      let matchCounter = 101;
+      const timedMatches = generatedMatches.map((m, idx) => ({ ...m, id: 'm_' + (matchCounter++ + matches.length + idx) }));
+      const updatedMatches = [...matches.filter(m => m.statusLabel !== phaseObj.id), ...timedMatches];
+      setMatches(updatedMatches);
+      persistLocally('local_matches', updatedMatches);
+    }
+    alert(`⚡ Pairings built for [ ${phaseObj.name} ]!`);
+  };
+
+  const adminClearAll = async () => {
+    if (window.confirm("🚨 Perform factory hard wipe sequence? This clears all entries completely.")) {
+      if (USE_CLOUD_DATABASE && supabase) {
+        await supabase.from('matches').delete().neq('id', 0);
+        await supabase.from('teams').delete().neq('id', 0);
+        await supabase.from('messages').delete().neq('id', 0);
+      }
+      localStorage.clear();
+      setTeams([]); setMatches([]); setMessages([]); setMyTeam(null); setGeneratedKeyReveal(null); setSelectedMatchId(null);
+      setTournamentTitle('Aeos Championship Series 2026');
+      setPhases([
+        { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3 },
+        { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5 }
+      ]);
+      alert("Database wiped clean.");
+    }
+  };
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (passwordInput === MASTER_PASSWORD) { setIsAdminAuthenticated(true); setPasswordInput(''); } 
+    else { alert("❌ INVALID DEPLOYMENT PASSWORD KEY."); setPasswordInput(''); }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#07090c] text-[#f3f4f6] font-sans antialiased selection:bg-[#0072ef] selection:text-white">
+      <header className="border-b border-[#1b2331] bg-[#0d1117] px-6 py-4 flex flex-col lg:flex-row justify-between items-center gap-4 sticky top-0 z-50 shadow-md">
+        <div className="flex items-center gap-4">
+          <span className="font-mono text-[10px] tracking-widest font-black px-2.5 py-1 rounded bg-green-500/10 text-green-400 border border-green-500/20">
+            CLOUD-LIVE
+          </span>
+          <div>
+            <h1 className="text-lg font-black tracking-tight text-white uppercase">{tournamentTitle}</h1>
+            <p className="text-[11px] font-mono text-[#9ca3af] uppercase tracking-wider mt-0.5">
+              {/* 💡 FIXED: Alternative layout string adjusted from "SPECTATOR INTERFACE OVERLAY" to "SPECTATOR MODE" */}
+              {myTeam ? `👑 CONNECTED CAPTAIN: ${myTeam.name}` : "👀 SPECTATOR MODE"}
+            </p>
+          </div>
+        </div>
+        <div className="flex bg-[#07090c] border border-[#1b2331] p-1 rounded gap-1">
+          {['signup', 'bracket', 'rankings', 'matchroom', 'admin'].map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-sm text-xs font-bold tracking-wider uppercase transition-all ${activeTab === tab ? 'bg-[#0072ef] text-white shadow' : 'text-[#9ca3af] hover:text-white hover:bg-[#13171e]'}`}>
+              {tab === 'signup' ? 'Teams' : tab === 'bracket' ? 'Brackets' : tab === 'rankings' ? 'Standings' : tab === 'matchroom' ? 'Match Room' : '🛠️ Admin'}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+        {generatedKeyReveal && (
+          <div className="p-4 bg-emerald-950/40 border border-emerald-500/30 rounded flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-wide">🛡️ Secure Team Roster Created</h3>
+              <p className="text-[11px] text-gray-400 mt-0.5">Roster activation confirmed. Teammates can link profiles using this password: </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="bg-[#0c0f12] border border-emerald-500/40 font-mono text-md font-black tracking-widest text-white px-4 py-2 rounded">
+                {generatedKeyReveal.key}
+              </div>
+              <button onClick={() => setGeneratedKeyReveal(null)} className="text-xs text-gray-500 hover:text-white uppercase font-bold tracking-wider font-mono">Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 1: REGISTRATION */}
+        {activeTab === 'signup' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            <div className="bg-[#0d1117] border border-[#1b2331] p-6 rounded shadow-xl">
+              <form onSubmit={handleRegisterTeam} className="space-y-4">
+                <h2 className="text-sm font-black uppercase tracking-wider text-[#0072ef]">Roster Entry Sign Up</h2>
+                
+                <div>
+                  <label className="block text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider mb-1">Team Identity Name</label>
+                  <input type="text" required placeholder="e.g., Lucario Legends" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} className="w-full bg-[#07090c] border border-[#1b2331] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0072ef]" />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">Create Team Access Code</label>
+                  <input type="text" required placeholder="e.g., GENGAR77" value={teamCodeInput} onChange={(e) => setTeamCodeInput(e.target.value)} className="w-full bg-[#07090c] border border-[#1b2331] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0072ef]" />
+                  <p className="text-[9px] text-gray-500 mt-1 font-sans">Choose a clean password. Other squad members will use this code to authorize handles.</p>
+                </div>
+
+                <div className="space-y-1.5 pt-2 border-t border-[#1b2331]">
+                  <label className="block text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider">Active Core Starting Lineup (5 Players)</label>
+                  {playerInputs.map((player, idx) => (
+                    <input key={idx} type="text" required placeholder={idx === 0 ? "Captain Name (Active)" : `Player ${idx + 1} Name`} value={player} onChange={(e) => { const updated = [...playerInputs]; updated[idx] = e.target.value; setPlayerInputs(updated); }} className="w-full bg-[#07090c] border border-[#1b2331] rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#0072ef]" />
+                  ))}
+                </div>
+                
+                <div className="space-y-1.5 pt-3 border-t border-[#1b2331]">
+                  <label className="block text-[10px] font-bold text-[#e28743] uppercase tracking-wider">Substitutes (Optional - Max 3)</label>
+                  {subInputs.map((sub, idx) => (
+                    <input key={idx} type="text" placeholder={`Backup Sub Player ${idx + 1}`} value={sub} onChange={(e) => { const updated = [...subInputs]; updated[idx] = e.target.value; setSubInputs(updated); }} className="w-full bg-[#07090c] border border-[#1b2331] rounded px-3 py-1.5 text-xs text-white focus:outline-none border-dashed border-[#1b2331] focus:border-solid focus:border-[#e28743]" />
+                  ))}
+                </div>
+                
+                <button type="submit" className="w-full bg-[#0072ef] hover:bg-[#0061cb] text-white font-black py-2.5 text-xs uppercase rounded transition tracking-wider">Register</button>
+              </form>
+            </div>
+
+            <div className="lg:col-span-2 bg-[#0d1117] border border-[#1b2331] rounded overflow-hidden shadow-xl">
+              <div className="p-4 bg-[#161b22] border-b border-[#1b2331] text-xs font-black uppercase tracking-wider text-white">Registered Teams ({teams.length})</div>
+              <div className="divide-y divide-[#1b2331]">
+                {teams.length === 0 && <div className="p-12 text-xs text-[#9ca3af] italic text-center">Zero registry entries active. Create a team above to populate data fields.</div>}
+                {teams.map((t) => (
+                  <div key={t.id} className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0d1117]/50 hover:bg-[#121821] transition">
+                    <div className="space-y-1.5">
+                      <span className="font-extrabold text-sm block text-white tracking-tight">{t.name}</span>
+                      <div className="text-[11px] text-gray-400 font-mono flex flex-wrap gap-1.5 items-center">
+                        <span className="text-purple-400 font-bold uppercase text-[10px]">Core:</span>
+                        {t.players?.map((p, i) => <span key={i} className="bg-[#07090c] px-2 py-0.5 rounded text-gray-300 border border-[#1b2331]">{p}</span>)}
+                      </div>
+                      {t.subs && t.subs.length > 0 && (
+                        <div className="text-[11px] text-gray-400 font-mono flex flex-wrap gap-1.5 items-center">
+                          <span className="text-orange-400 font-bold uppercase text-[10px]">Subs:</span>
+                          {t.subs.map((subName, sIdx) => <span key={sIdx} className="bg-[#07090c] px-2 py-0.5 rounded text-[#9ca3af] italic border border-[#1b2331]">{subName}</span>)}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => handleSecureClaimIdentity(t)} className={`text-[10px] font-mono font-black px-3 py-1.5 rounded border transition ${myTeam?.name === t.name ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-[#07090c] text-gray-400 border-[#1b2331] hover:text-white hover:border-[#0072ef]'}`}>
+                      {myTeam?.name === t.name ? '✓ Linked' : '🔒 Link Profile'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: HIGH-FIDELITY BRACKETS */}
+        {activeTab === 'bracket' && (
+          <div className="space-y-12">
+            {matches.length === 0 && (
+              <div className="p-16 border border-[#1b2331] bg-[#0d1117] rounded text-center text-xs text-[#9ca3af] italic shadow-xl">
+                Awaiting tournament layout configuration. Enter Admin Panel to generate custom round nodes.
+              </div>
+            )}
+
+            {phases.map((phase) => {
+              const stageMatches = matches.filter(m => m.statusLabel === phase.id);
+              if (stageMatches.length === 0) return null;
+
+              return (
+                <div key={phase.id} className="space-y-4 animate-fadeIn">
+                  <div className="bg-[#0d1117] border border-[#1b2331] p-4 rounded flex justify-between items-center shadow-md border-l-4 border-l-[#0072ef]">
+                    <div>
+                      <span className="text-sm font-black uppercase tracking-wider text-white block">{phase.name}</span>
+                      <span className="text-[10px] font-mono text-[#9ca3af] tracking-wide uppercase mt-0.5">Format Architecture: {phase.format}</span>
+                    </div>
+                    <span className="bg-[#07090c] border border-[#1b2331] text-[10px] px-3 py-1 rounded font-black font-mono text-[#0072ef]">
+                      BO{phase.bestOf} SERIES
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {stageMatches.map((match) => {
+                      const isCompleted = match.status === "Completed";
+                      const t1Won = isCompleted && Number(match.score1) > Number(match.score2);
+                      const t2Won = isCompleted && Number(match.score2) > Number(match.score1);
+
+                      return (
+                        <div key={match.id} className="bg-[#0d1117] border border-[#1b2331] rounded-lg overflow-hidden shadow-lg hover:border-[#2b384e] transition flex flex-col justify-between group">
+                          <div className="bg-[#161b22] px-3 py-1.5 border-b border-[#1b2331] flex justify-between items-center text-[10px] font-mono text-gray-400">
+                            <span>ID: #{match.id.toString().substring(0, 5)}</span>
+                            <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${isCompleted ? 'bg-green-500/10 text-green-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                              {match.status.toUpperCase()}
+                            </span>
+                          </div>
+
+                          <div className="divide-y divide-[#1b2331] bg-[#0d1117]">
+                            <div className={`flex justify-between items-center px-4 py-2.5 transition-all ${isCompleted && !t1Won ? 'opacity-40 bg-black/10' : ''} ${t1Won ? 'bg-[#0072ef]/5' : ''}`}>
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="text-[9px] font-mono text-gray-500 bg-[#07090c] border px-1 rounded">1</span>
+                                <span className={`text-xs font-bold truncate ${t1Won ? 'text-green-400 font-extrabold' : 'text-white'}`}>{match.team1}</span>
+                              </div>
+                              <span className={`font-mono text-xs font-black px-2.5 py-0.5 rounded border ${t1Won ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-[#07090c] border-[#1b2331] text-gray-400'}`}>
+                                {match.score1}
+                              </span>
+                            </div>
+
+                            <div className={`flex justify-between items-center px-4 py-2.5 transition-all ${isCompleted && !t2Won ? 'opacity-40 bg-black/10' : ''} ${t2Won ? 'bg-[#0072ef]/5' : ''}`}>
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="text-[9px] font-mono text-gray-500 bg-[#07090c] border px-1 rounded">2</span>
+                                <span className={`text-xs font-bold truncate ${t2Won ? 'text-green-400 font-extrabold' : 'text-white'}`}>{match.team2}</span>
+                              </div>
+                              <span className={`font-mono text-xs font-black px-2.5 py-0.5 rounded border ${t2Won ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-[#07090c] border-[#1b2331] text-gray-400'}`}>
+                                {match.score2}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="bg-[#07090c] px-3 py-2 border-t border-[#1b2331] flex justify-end">
+                            <button onClick={() => handleRoutingToMatchroom(match.id)} className="text-[10px] font-black text-[#0072ef] uppercase tracking-wider group-hover:text-white transition flex items-center gap-1">
+                              Match Details <span className="font-sans">→</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* TAB 3: STANDINGS LEADERBOARD */}
+        {activeTab === 'rankings' && (
+          <div className="bg-[#0d1117] border border-[#1b2331] rounded-lg overflow-hidden shadow-2xl animate-fadeIn">
+            <div className="p-5 bg-[#161b22] border-b border-[#1b2331]">
+              <h2 className="text-sm font-black uppercase tracking-wider text-white">Tournament Leaderboard Standings</h2>
+              <p className="text-[11px] text-gray-400 mt-0.5 font-mono">Calculated from verified match performance data nodes.</p>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse font-mono text-xs">
+                <thead>
+                  <tr className="bg-[#07090c] border-b border-[#1b2331] text-[#9ca3af] uppercase tracking-wider text-[10px]">
+                    <th className="p-4 font-bold text-center w-16">Rank</th>
+                    <th className="p-4 font-bold font-sans">Team Squadron</th>
+                    <th className="p-4 font-bold text-center">Played</th>
+                    <th className="p-4 font-bold text-center text-green-400">Wins</th>
+                    <th className="p-4 font-bold text-center text-red-400">Losses</th>
+                    <th className="p-4 font-bold text-center text-[#0072ef]">Battle Points</th>
+                    <th className="p-4 font-bold font-sans hidden md:table-cell">Roster Core</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1b2331]">
+                  {computeStandingsRankings().length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="p-12 text-center italic text-[#9ca3af] font-sans">No match records compiled yet. Run brackets and save scores to unlock rank nodes.</td>
+                    </tr>
+                  )}
+                  {computeStandingsRankings().map((row, index) => (
+                    <tr key={index} className="hover:bg-[#121821] transition bg-[#0d1117]/40">
+                      <td className="p-4 text-center font-black">
+                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] ${index === 0 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : index === 1 ? 'bg-slate-400/20 text-slate-300 border border-slate-400/30' : index === 2 ? 'bg-amber-700/20 text-amber-500 border border-amber-700/30' : 'text-gray-400'}`}>
+                          #{index + 1}
+                        </span>
+                      </td>
+                      <td className="p-4 font-sans font-bold text-white text-sm">{row.name}</td>
+                      <td className="p-4 text-center text-gray-400">{row.played}</td>
+                      <td className="p-4 text-center font-extrabold text-green-400 bg-green-500/5">{row.wins}</td>
+                      <td className="p-4 text-center font-extrabold text-red-400 bg-red-500/5">{row.losses}</td>
+                      <td className="p-4 text-center font-black text-white bg-[#0072ef]/5">{row.totalBattlePoints}</td>
+                      <td className="p-4 text-gray-400 font-sans hidden md:table-cell truncate max-w-xs">{row.roster?.join(', ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: MATCH ROOM */}
+        {activeTab === 'matchroom' && (
+          <div>
+            {matches.length === 0 ? <div className="p-12 bg-[#0d1117] border border-[#1b2331] rounded text-center text-xs text-[#9ca3af] italic">No active match nodes.</div> : (() => {
+              const currentMatch = getCurrentActiveMatch();
+              if (!currentMatch) return null;
+              
+              const parentPhase = phases.find(p => p.id === currentMatch.statusLabel);
+              const authorizedUser = myTeam && (myTeam.name === currentMatch.team1 || myTeam.name === currentMatch.team2);
+
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2 bg-[#0d1117] border border-[#1b2331] rounded flex flex-col h-[520px]">
+                    <div className="bg-[#161b22] p-4 text-xs font-bold border-b border-[#1b2331]">
+                      <span className="text-white block font-black uppercase tracking-wider">Real-Time Match Chat Comms</span>
+                      <span className="text-[10px] font-mono text-[#9ca3af] uppercase tracking-wide mt-0.5">
+                        {currentMatch.team1} vs {currentMatch.team2} 
+                        <span className="text-[#0072ef] ml-1">({parentPhase ? parentPhase.name : 'Active Phase'})</span>
+                      </span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-black/20 text-xs font-mono">
+                      {messages.filter(msg => String(msg.matchId) === String(currentMatch.id)).map((msg, idx) => (
+                        <div key={idx} className="border-l-2 border-[#0072ef] pl-3 py-0.5">
+                          <span className="text-blue-400 font-bold">{msg.sender}: </span>
+                          <span className="text-gray-300">{msg.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-3 bg-[#161b22] border-t border-[#1b2331] flex gap-2">
+                      <input type="text" disabled={!authorizedUser} placeholder={authorizedUser ? "Exchange lobby passwords or handles here..." : "🔒 Spectator lock. Read-only view channel."} value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(currentMatch.id)} className="flex-1 bg-[#07090c] text-xs p-2 rounded text-white border border-[#1b2331] focus:outline-none focus:border-[#0072ef]" />
+                      <button disabled={!authorizedUser} onClick={() => handleSendMessage(currentMatch.id)} className="bg-[#0072ef] text-white text-xs font-bold px-5 rounded disabled:bg-gray-800 transition uppercase tracking-wide">Send</button>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#0d1117] border border-[#1b2331] p-5 rounded space-y-4 shadow-xl">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-white">Report Live Series Scores</h3>
+                    {authorizedUser ? (
+                      <>
+                        <div className="flex justify-between items-center bg-[#07090c] p-3 rounded border border-[#1b2331] font-mono text-xs">
+                          <span className="truncate max-w-[150px] text-white font-bold">{currentMatch.team1}</span>
+                          <input type="number" value={playerScore1} onChange={(e) => setPlayerScore1(parseInt(e.target.value) || 0)} className="w-12 bg-[#13171e] border border-[#1b2331] text-center text-white text-xs p-1 rounded focus:outline-none focus:border-[#0072ef]" />
+                        </div>
+                        <div className="flex justify-between items-center bg-[#07090c] p-3 rounded border border-[#1b2331] font-mono text-xs">
+                          <span className="truncate max-w-[150px] text-white font-bold">{currentMatch.team2}</span>
+                          <input type="number" value={playerScore2} onChange={(e) => setPlayerScore2(parseInt(e.target.value) || 0)} className="w-12 bg-[#13171e] border border-[#1b2331] text-center text-white text-xs p-1 rounded focus:outline-none focus:border-[#0072ef]" />
+                        </div>
+                        <button onClick={() => handlePlayerSubmitScore(currentMatch.id)} className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded text-xs uppercase font-black tracking-wider transition shadow-md">Transmit Scores</button>
+                      </>
+                    ) : (
+                      <div className="bg-[#07090c] border border-[#1b2331] rounded p-4 text-center text-xs text-[#9ca3af] italic">🔒 Entry denied. Reporting requires player roster authorization codes.</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* TAB 5: ADMIN */}
+        {activeTab === 'admin' && (
+          <div>
+            {!isAdminAuthenticated ? (
+              <form onSubmit={handleAdminLogin} className="max-w-md mx-auto bg-[#0d1117] border border-[#1b2331] p-6 rounded space-y-4 shadow-2xl">
+                <h2 className="text-xs font-bold uppercase text-amber-500 text-center tracking-widest">Verify Secure Root Key</h2>
+                <input type="password" placeholder="••••••••" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full bg-[#07090c] text-center border border-[#1b2331] p-2.5 text-xs text-white focus:outline-none focus:border-amber-500 tracking-widest rounded" />
+                <button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-slate-950 font-black py-2.5 rounded text-xs uppercase tracking-wider transition">Unlock Systems</button>
+              </form>
+            ) : (
+              <div className="bg-[#0d1117] border border-[#1b2331] rounded p-6 space-y-6 shadow-2xl">
+                <div className="flex justify-between border-b border-[#1b2331] pb-3 items-center">
+                  <h3 className="text-xs font-black text-amber-500 uppercase tracking-widest">Master Operations Terminal</h3>
+                  <button onClick={() => setIsAdminAuthenticated(false)} className="text-red-400 text-xs hover:underline font-mono">Lock Admin Node</button>
+                </div>
+                
+                <div className="p-4 bg-[#07090c] border border-[#1b2331] rounded space-y-2">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Branding Title</label>
+                  <input type="text" value={tournamentTitle} onChange={(e) => handleAdminTitleEdit(e.target.value)} className="w-full max-w-xl bg-[#0d1117] border border-[#1b2331] rounded px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#0072ef]" />
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start border border-[#1b2331] p-4 rounded bg-[#07090c]">
+                  <form onSubmit={handleAdminAddPhase} className="space-y-3 lg:border-r lg:border-[#1b2331] lg:pr-6">
+                    <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wide">➕ Construct Custom Phase</h4>
+                    <div>
+                      <label className="block text-[9px] text-gray-400 uppercase mb-1">Stage Name Label</label>
+                      <input type="text" required placeholder="e.g., Phase 3: Top 8 Final Grid" value={phaseFormName} onChange={(e) => setPhaseFormName(e.target.value)} className="w-full bg-[#0d1117] border border-[#1b2331] text-xs px-2.5 py-1.5 rounded text-white focus:outline-none" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] text-gray-400 uppercase mb-1">Structure</label>
+                        <select value={phaseFormFormat} onChange={(e) => setPhaseFormFormat(e.target.value)} className="w-full bg-[#0d1117] border border-[#1b2331] text-xs p-1.5 rounded text-white focus:outline-none cursor-pointer">
+                          <option value="Single Elimination">Single Elimination</option>
+                          <option value="Double Elimination">Double Elimination</option>
+                          <option value="Swiss">Swiss</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] text-gray-400 uppercase mb-1">Match Metrics</label>
+                        <select value={phaseFormBestOf} onChange={(e) => setPhaseFormBestOf(e.target.value)} className="w-full bg-[#0d1117] border border-[#1b2331] text-xs p-1.5 rounded text-white focus:outline-none cursor-pointer">
+                          <option value={1}>Best of 1</option>
+                          <option value={3}>Best of 3</option>
+                          <option value={5}>Best of 5</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button type="submit" className="w-full bg-[#0072ef] text-white text-xs font-bold py-1.5 rounded font-mono uppercase tracking-wide transition">Build Phase Node</button>
+                  </form>
+
+                  <div className="lg:col-span-2 space-y-3">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide">📐 Active Blueprint Layouts Matrix</h4>
+                    <div className="divide-y divide-[#1b2331] max-h-48 overflow-y-auto pr-2">
+                      {phases.map((phase) => (
+                        <div key={phase.id} className="py-2.5 flex justify-between items-center text-xs font-mono">
+                          <div>
+                            <span className="text-white font-sans font-bold block">{phase.name}</span>
+                            <span className="text-[10px] text-gray-500">{phase.format} • BO{phase.bestOf} format</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => adminCompileFormations(phase)} className="bg-emerald-950 text-emerald-400 border border-emerald-900 hover:bg-emerald-900 hover:text-white px-2.5 py-1 rounded text-[10px] font-bold transition">⚡ Pair Matchups</button>
+                            <button onClick={() => handleAdminDeletePhase(phase.id)} className="bg-red-950 text-red-400 border border-red-900 hover:bg-red-900 hover:text-white px-2.5 py-1 rounded text-[10px] font-bold transition">✕ Drop</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button onClick={adminClearAll} className="bg-red-950 border border-red-900 text-red-400 text-xs font-bold px-4 py-2 rounded hover:bg-red-900 transition font-mono">🚨 Wipe Cloud Cluster Ledgers</button>
+                </div>
+                
+                <div className="space-y-3 pt-4 border-t border-[#1b2331]">
+                  <h4 className="text-xs font-bold uppercase text-gray-400">Direct Bracket Match Overrider</h4>
+                  {matches.length === 0 && <p className="text-xs italic text-gray-600">No generated matches found to override.</p>}
+                  {matches.map((m) => {
+                    const matchPhase = phases.find(p => p.id === m.statusLabel);
+                    return (
+                      <div key={m.id} className="p-3 bg-[#07090c] rounded border border-[#1b2331] flex justify-between items-center text-xs font-mono">
+                        <span className="truncate max-w-xs">{m.team1} vs {m.team2} <span className="text-purple-500 text-[10px]">({matchPhase ? matchPhase.name.split(':')[0] : 'P1'})</span></span>
+                        <div className="flex gap-2">
+                          <input type="number" value={m.score1} onChange={(e) => handleAdminScoreEdit(m.id, e.target.value, m.score2)} className="w-12 bg-[#0d1117] text-center py-0.5 border border-[#1b2331] text-white focus:outline-none focus:border-[#0072ef]" />
+                          <input type="number" value={m.score2} onChange={(e) => handleAdminScoreEdit(m.id, m.score1, e.target.value)} className="w-12 bg-[#0d1117] text-center py-0.5 border border-[#1b2331] text-white focus:outline-none focus:border-[#0072ef]" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
