@@ -21,8 +21,8 @@ export default function App() {
   // Tournament Blueprint Layout States
   const [tournamentTitle, setTournamentTitle] = useState('Aeos Championship Series 2026');
   const [phases, setPhases] = useState([
-    { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3 },
-    { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5 }
+    { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3, advancingCount: 8 },
+    { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5, advancingCount: 1 }
   ]);
   const [myTeam, setMyTeam] = useState(null); 
   const [teams, setTeams] = useState([]);
@@ -36,6 +36,7 @@ export default function App() {
   const [phaseFormName, setPhaseFormName] = useState('');
   const [phaseFormFormat, setPhaseFormFormat] = useState('Single Elimination');
   const [phaseFormBestOf, setPhaseFormBestOf] = useState(3);
+  const [phaseFormAdvancingCount, setPhaseFormAdvancingCount] = useState(''); // 🆕 State for progression customization
 
   // Scores, Chat & Team Inputs
   const [newTeamName, setNewTeamName] = useState('');
@@ -234,6 +235,11 @@ export default function App() {
     }
   };
 
+  const handleRoutingToMatchroom = (matchId) => {
+    setSelectedMatchId(matchId); 
+    setActiveTab('matchroom');   
+  };
+
   // ================= 🛡️ ADMIN CORE HANDLERS =================
   const handleAdminTitleEdit = (newTitle) => {
     setTournamentTitle(newTitle);
@@ -255,11 +261,21 @@ export default function App() {
     e.preventDefault();
     if (!phaseFormName.trim()) return;
 
-    const newPhase = { id: 'p_' + Date.now(), name: phaseFormName, format: phaseFormFormat, bestOf: parseInt(phaseFormBestOf) };
+    // 💡 FIXED: Encapsulates custom advancing team counts into the array data mapping logic
+    const newPhase = { 
+      id: 'p_' + Date.now(), 
+      name: phaseFormName, 
+      format: phaseFormFormat, 
+      bestOf: parseInt(phaseFormBestOf),
+      advancingCount: phaseFormAdvancingCount ? parseInt(phaseFormAdvancingCount) : null 
+    };
+
     const updatedPhases = [...phases, newPhase];
     setPhases(updatedPhases);
     persistLocally('local_phases', updatedPhases);
+    
     setPhaseFormName('');
+    setPhaseFormAdvancingCount('');
     alert(`🆕 Custom Stage: "${newPhase.name}" added!`);
   };
 
@@ -314,8 +330,8 @@ export default function App() {
       setTeams([]); setMatches([]); setMessages([]); setMyTeam(null); setGeneratedKeyReveal(null); setSelectedMatchId(null);
       setTournamentTitle('Aeos Championship Series 2026');
       setPhases([
-        { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3 },
-        { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5 }
+        { id: 'p_default_1', name: "Phase 1: Swiss Qualifiers", format: "Swiss", bestOf: 3, advancingCount: 8 },
+        { id: 'p_default_2', name: "Phase 2: Championship Bracket", format: "Double Elimination", bestOf: 5, advancingCount: 1 }
       ]);
       alert("Database wiped clean.");
     }
@@ -337,7 +353,6 @@ export default function App() {
           <div>
             <h1 className="text-lg font-black tracking-tight text-white uppercase">{tournamentTitle}</h1>
             <p className="text-[11px] font-mono text-[#9ca3af] uppercase tracking-wider mt-0.5">
-              {/* 💡 FIXED: Alternative layout string adjusted from "SPECTATOR INTERFACE OVERLAY" to "SPECTATOR MODE" */}
               {myTeam ? `👑 CONNECTED CAPTAIN: ${myTeam.name}` : "👀 SPECTATOR MODE"}
             </p>
           </div>
@@ -453,9 +468,18 @@ export default function App() {
                       <span className="text-sm font-black uppercase tracking-wider text-white block">{phase.name}</span>
                       <span className="text-[10px] font-mono text-[#9ca3af] tracking-wide uppercase mt-0.5">Format Architecture: {phase.format}</span>
                     </div>
-                    <span className="bg-[#07090c] border border-[#1b2331] text-[10px] px-3 py-1 rounded font-black font-mono text-[#0072ef]">
-                      BO{phase.bestOf} SERIES
-                    </span>
+                    
+                    {/* Displays parameters including advancing metrics to viewing spectating users */}
+                    <div className="flex gap-2 font-mono text-[10px] font-black">
+                      {phase.advancingCount && (
+                        <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 px-3 py-1 rounded">
+                          TOP {phase.advancingCount} ADVANCES
+                        </span>
+                      )}
+                      <span className="bg-[#07090c] border border-[#1b2331] text-[#0072ef] px-3 py-1 rounded">
+                        BO{phase.bestOf} SERIES
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -644,6 +668,13 @@ export default function App() {
                       <label className="block text-[9px] text-gray-400 uppercase mb-1">Stage Name Label</label>
                       <input type="text" required placeholder="e.g., Phase 3: Top 8 Final Grid" value={phaseFormName} onChange={(e) => setPhaseFormName(e.target.value)} className="w-full bg-[#0d1117] border border-[#1b2331] text-xs px-2.5 py-1.5 rounded text-white focus:outline-none" />
                     </div>
+                    
+                    {/* Progression / Advancing cut controller input element fields */}
+                    <div>
+                      <label className="block text-[9px] text-amber-500 font-bold uppercase mb-1">Top X Teams Advance to Next Phase</label>
+                      <input type="number" min="1" placeholder="e.g., 8 (Leave empty if final phase)" value={phaseFormAdvancingCount} onChange={(e) => setPhaseFormAdvancingCount(e.target.value)} className="w-full bg-[#0d1117] border border-[#1b2331] text-xs px-2.5 py-1.5 rounded text-white focus:outline-none focus:border-[#0072ef]" />
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-[9px] text-gray-400 uppercase mb-1">Structure</label>
@@ -672,7 +703,10 @@ export default function App() {
                         <div key={phase.id} className="py-2.5 flex justify-between items-center text-xs font-mono">
                           <div>
                             <span className="text-white font-sans font-bold block">{phase.name}</span>
-                            <span className="text-[10px] text-gray-500">{phase.format} • BO{phase.bestOf} format</span>
+                            {/* 💡 FIXED: The admin view template now explicitly prints the custom cutoff settings rules */}
+                            <span className="text-[10px] text-gray-500">
+                              {phase.format} • BO{phase.bestOf} format {phase.advancingCount ? `• Top ${phase.advancingCount} advance` : '• Final Stage'}
+                            </span>
                           </div>
                           <div className="flex gap-2">
                             <button onClick={() => adminCompileFormations(phase)} className="bg-emerald-950 text-emerald-400 border border-emerald-900 hover:bg-emerald-900 hover:text-white px-2.5 py-1 rounded text-[10px] font-bold transition">⚡ Pair Matchups</button>
