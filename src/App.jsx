@@ -19,8 +19,11 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
 
-  // Dynamic Content States
+  // Tournament Layout & Structure Configuration States
   const [tournamentTitle, setTournamentTitle] = useState('Aeos Championship Series 2026');
+  const [tournamentFormat, setTournamentFormat] = useState('hybrid'); // 'hybrid' vs 'all-de'
+  
+  // Dynamic Content Matrices
   const [myTeam, setMyTeam] = useState(null); 
   const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -71,17 +74,20 @@ export default function App() {
       const localMatches = localStorage.getItem('local_matches');
       const localMessages = localStorage.getItem('local_messages');
       const localTitle = localStorage.getItem('local_title');
+      const localFormat = localStorage.getItem('local_format');
 
       if (localTeams) setTeams(JSON.parse(localTeams));
       if (localMatches) setMatches(JSON.parse(localMatches));
       if (localMessages) setMessages(JSON.parse(localMessages));
       if (localTitle) setTournamentTitle(localTitle);
+      if (localFormat) setTournamentFormat(localFormat);
 
       const syncTabs = (e) => {
         if (e.key === 'local_teams' && e.newValue) setTeams(JSON.parse(e.newValue));
         if (e.key === 'local_matches' && e.newValue) setMatches(JSON.parse(e.newValue));
         if (e.key === 'local_messages' && e.newValue) setMessages(JSON.parse(e.newValue));
         if (e.key === 'local_title' && e.newValue) setTournamentTitle(e.newValue);
+        if (e.key === 'local_format' && e.newValue) setTournamentFormat(e.newValue);
       };
       window.addEventListener('storage', syncTabs);
       return () => window.removeEventListener('storage', syncTabs);
@@ -99,7 +105,6 @@ export default function App() {
 
   const getCurrentActiveMatch = () => {
     if (matches.length === 0) return null;
-    // Uses standardized string matching to prevent integer vs string comparison friction
     const selected = matches.find(m => String(m.id) === String(selectedMatchId));
     if (selected) return selected;
     const autoFound = matches.find(m => myTeam && (m.team1 === myTeam.name || m.team2 === myTeam.name));
@@ -147,7 +152,7 @@ export default function App() {
     if (!chatInput.trim() || !myTeam || !currentMatchId) return;
 
     const msgPayload = { 
-      matchId: String(currentMatchId), // Ensures data formats are parsed as uniform text
+      matchId: String(currentMatchId), 
       sender: myTeam.name, 
       text: chatInput, 
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
@@ -198,6 +203,11 @@ export default function App() {
     persistLocally('local_title', newTitle);
   };
 
+  const handleAdminFormatEdit = (newFormat) => {
+    setTournamentFormat(newFormat);
+    persistLocally('local_format', newFormat);
+  };
+
   const handleAdminScoreEdit = (matchId, s1, s2) => {
     const score1Val = parseInt(s1) || 0;
     const score2Val = parseInt(s2) || 0;
@@ -209,36 +219,47 @@ export default function App() {
     }
   };
 
-  const adminGenerateRound1 = async () => {
-    if (teams.length < 2) { alert("Insufficient operational data profiles. Register at least 2 teams."); return; }
+  // Automated Algorithmic Pairing Compiler Engine
+  const adminCompileFormations = async (targetStageLabel) => {
+    if (teams.length < 2) { alert("Insufficient parameters. Enlist at least 2 teams."); return; }
 
     const generatedMatches = [];
-    let matchCounter = 101;
-    
     for (let i = 0; i < teams.length; i += 2) {
       if (teams[i] && teams[i + 1]) {
-        // FIXED: Removed string custom id injection. Let database index auto-increments take over
-        generatedMatches.push({ team1: teams[i].name, team2: teams[i + 1].name, score1: 0, score2: 0, status: "Ongoing" });
+        generatedMatches.push({ 
+          team1: teams[i].name, 
+          team2: teams[i + 1].name, 
+          score1: 0, 
+          score2: 0, 
+          status: "Ongoing",
+          statusLabel: targetStageLabel // Attaches specific Phase tracking metadata
+        });
       } else if (teams[i]) {
-        generatedMatches.push({ team1: teams[i].name, team2: "BYE FIELD", score1: 1, score2: 0, status: "Completed" });
+        generatedMatches.push({ 
+          team1: teams[i].name, 
+          team2: "BYE SLOTS", 
+          score1: 1, 
+          score2: 0, 
+          status: "Completed",
+          statusLabel: targetStageLabel
+        });
       }
     }
 
     if (USE_CLOUD_DATABASE && supabase) {
-      // Clear old matches out
-      const { error: dErr } = await supabase.from('matches').delete().neq('id', 0);
-      if (dErr) { alert("❌ Database Clear Failure: " + dErr.message); return; }
-
-      // Insert clean structured pairings
-      const { error: iErr } = await supabase.from('matches').insert(generatedMatches);
-      if (iErr) { alert("❌ Database Insertion Failure: " + iErr.message); return; }
+      // Clean target stage data rows to avoid redundancy overlaps
+      await supabase.from('matches').delete().eq('statusLabel', targetStageLabel);
+      const { error } = await supabase.from('matches').insert(generatedMatches);
+      if (error) alert("Error connecting to cloud: " + error.message);
     } else {
-      // Local mode numbering fallback matching
-      const localMatches = generatedMatches.map((m, idx) => ({ ...m, id: matchCounter + idx }));
-      setMatches(localMatches);
-      persistLocally('local_matches', localMatches);
+      // Append or replace local memory structures depending on deployment stage
+      let matchCounter = 101;
+      const timedMatches = generatedMatches.map((m, idx) => ({ ...m, id: 'm_' + (matchCounter++ + matches.length + idx) }));
+      const updatedMatches = [...matches.filter(m => m.statusLabel !== targetStageLabel), ...timedMatches];
+      setMatches(updatedMatches);
+      persistLocally('local_matches', updatedMatches);
     }
-    alert("⚡ Round 1 pairings generated successfully!");
+    alert(`⚡ Successfully populated bracket pairings for [ ${targetStageLabel} ]!`);
   };
 
   const adminClearAll = async () => {
@@ -251,6 +272,7 @@ export default function App() {
       localStorage.clear();
       setTeams([]); setMatches([]); setMessages([]); setMyTeam(null); setGeneratedKeyReveal(null); setSelectedMatchId(null);
       setTournamentTitle('Aeos Championship Series 2026');
+      setTournamentFormat('hybrid');
       alert("Database wiped clean.");
     }
   };
@@ -359,29 +381,48 @@ export default function App() {
 
         {/* TAB 2: LIVE BRACKETS */}
         {activeTab === 'bracket' && (
-          <div className="space-y-6">
-            <div className="bg-[#13171e] border border-[#202631] p-4 rounded text-xs font-bold uppercase text-white">Active Stage Routing Brackets</div>
-            {matches.length === 0 && <div className="p-12 border border-[#202631] bg-[#13171e] rounded text-center text-xs text-[#9ca3af] italic">Awaiting tournament layout configuration. Enter Admin Panel to generate structural rounds.</div>}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {matches.map((match) => (
-                <div key={match.id} className="bg-[#13171e] border border-[#202631] rounded flex flex-col justify-between">
-                  <div className="divide-y divide-[#202631]">
-                    <div className="flex justify-between items-center p-3 text-xs">
-                      <span className={match.status === "Completed" && match.score1 > match.score2 ? "text-green-400 font-bold" : "text-white"}>{match.team1}</span>
-                      <span className="bg-[#0c0f12] border px-2 py-0.5 font-mono font-bold">{match.score1}</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 text-xs">
-                      <span className={match.status === "Completed" && match.score2 > match.score1 ? "text-green-400 font-bold" : "text-white"}>{match.team2}</span>
-                      <span className="bg-[#0c0f12] border px-2 py-0.5 font-mono font-bold">{match.score2}</span>
-                    </div>
+          <div className="space-y-10">
+            {matches.length === 0 && (
+              <div className="p-12 border border-[#202631] bg-[#13171e] rounded text-center text-xs text-[#9ca3af] italic">
+                Awaiting tournament layout configuration. Enter Admin Panel to generate structural rounds.
+              </div>
+            )}
+
+            {/* DYNAMIC LAYOUT CATEGORIZATIONS FILTER BLOCKS */}
+            {['Phase 1: Swiss Qualifiers', 'Phase 2: Double Elimination Stage', 'Master Double Elimination Bracket'].map((stageLabel) => {
+              const stageMatches = matches.filter(m => m.statusLabel === stageLabel || (!m.statusLabel && stageLabel === 'Phase 1: Swiss Qualifiers'));
+              if (stageMatches.length === 0) return null;
+
+              return (
+                <div key={stageLabel} className="space-y-4 animate-fadeIn">
+                  <div className="bg-[#13171e] border border-[#202631] p-4 rounded text-xs font-bold uppercase tracking-wider text-purple-400 flex justify-between items-center">
+                    <span>{stageLabel}</span>
+                    <span className="bg-[#0c0f12] text-[10px] px-2 py-0.5 rounded text-gray-500 font-mono">{stageMatches.length} Matches</span>
                   </div>
-                  <div className="bg-[#0c0f12] p-2 border-t border-[#202631] text-[10px] flex justify-between">
-                    <span className="text-gray-500 font-mono">Status: {match.status}</span>
-                    <button onClick={() => handleRoutingToMatchroom(match.id)} className="text-[#0072ef] font-bold hover:underline">Enter Room →</button>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {stageMatches.map((match) => (
+                      <div key={match.id} className="bg-[#13171e] border border-[#202631] rounded flex flex-col justify-between hover:border-[#3b4556] transition">
+                        <div className="divide-y divide-[#202631]">
+                          <div className="flex justify-between items-center p-3 text-xs">
+                            <span className={match.status === "Completed" && match.score1 > match.score2 ? "text-green-400 font-bold" : "text-white"}>{match.team1}</span>
+                            <span className="bg-[#0c0f12] border px-2 py-0.5 font-mono font-bold">{match.score1}</span>
+                          </div>
+                          <div className="flex justify-between items-center p-3 text-xs">
+                            <span className={match.status === "Completed" && match.score2 > match.score1 ? "text-green-400 font-bold" : "text-white"}>{match.team2}</span>
+                            <span className="bg-[#0c0f12] border px-2 py-0.5 font-mono font-bold">{match.score2}</span>
+                          </div>
+                        </div>
+                        <div className="bg-[#0c0f12] p-2 border-t border-[#202631] text-[10px] flex justify-between">
+                          <span className="text-gray-500 font-mono">Status: {match.status}</span>
+                          <button onClick={() => handleRoutingToMatchroom(match.id)} className="text-[#0072ef] font-bold hover:underline">Enter Room →</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         )}
 
@@ -399,10 +440,9 @@ export default function App() {
                   <div className="lg:col-span-2 bg-[#13171e] border border-[#202631] rounded flex flex-col h-[520px]">
                     <div className="bg-[#191f29] p-3 text-xs font-bold border-b border-[#202631]">
                       <span className="text-white block">Real-Time Match Chat Comms</span>
-                      <span className="text-[10px] font-mono text-[#9ca3af]">{currentMatch.team1} vs {currentMatch.team2}</span>
+                      <span className="text-[10px] font-mono text-[#9ca3af]">{currentMatch.team1} vs {currentMatch.team2} <span className="text-purple-400">({currentMatch.statusLabel || 'Phase 1'})</span></span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0c0f12]/50 text-xs font-mono">
-                      {/* FIXED TYPECAST MATCHING RULE */}
                       {messages.filter(msg => String(msg.matchId) === String(currentMatch.id)).map((msg, idx) => (
                         <div key={idx} className="border-l border-[#202631] pl-2 py-0.5">
                           <span className="text-blue-400 font-bold">{msg.sender}: </span>
@@ -456,20 +496,49 @@ export default function App() {
                   <button onClick={() => setIsAdminAuthenticated(false)} className="text-red-400 text-xs hover:underline font-mono">Lock Admin Node</button>
                 </div>
                 
+                {/* DYNAMIC TITLE CONTROLLER SECTION */}
                 <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-2">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Platform Branding Title</label>
-                  <input 
-                    type="text" 
-                    value={tournamentTitle} 
-                    onChange={(e) => handleAdminTitleEdit(e.target.value)} 
-                    placeholder="e.g., Aeos Winter Invitational 2026" 
-                    className="w-full max-w-xl bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-sans font-bold focus:outline-none focus:border-[#0072ef]" 
-                  />
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Branding Title</label>
+                  <input type="text" value={tournamentTitle} onChange={(e) => handleAdminTitleEdit(e.target.value)} className="w-full max-w-xl bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#0072ef]" />
                 </div>
 
-                <div className="flex flex-wrap gap-4">
-                  <button onClick={adminGenerateRound1} className="bg-[#0072ef] text-white text-xs font-bold px-4 py-2.5 rounded hover:bg-[#0061cb] uppercase font-mono">⚡ Pair Up Registered Teams</button>
-                  <button onClick={adminClearAll} className="bg-red-950 border border-red-900 text-red-400 text-xs font-bold px-4 py-2.5 rounded hover:bg-red-900 uppercase font-mono">🚨 Factory System Wipe</button>
+                {/* DYNAMIC FORMAT CHANGER SYSTEM DROPDOWN */}
+                <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-2">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tournament Bracket Format Pipeline</label>
+                  <select 
+                    value={tournamentFormat} 
+                    onChange={(e) => handleAdminFormatEdit(e.target.value)}
+                    className="bg-[#13171e] border border-[#202631] rounded px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#0072ef] cursor-pointer"
+                  >
+                    <option value="hybrid">Phase 1: Swiss Qualifiers ➔ Phase 2: Double Elimination Stage</option>
+                    <option value="all-de">All Tournament: Master Double Elimination Bracket</option>
+                  </select>
+                </div>
+
+                {/* ADAPTIVE ACTION TRIGGER BUTTONS GRID */}
+                <div className="p-4 bg-[#0c0f12] border border-[#202631] rounded space-y-4">
+                  <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Pairing Compilation Matrix Controllers</h4>
+                  
+                  <div className="flex flex-wrap gap-4">
+                    {tournamentFormat === 'hybrid' ? (
+                      <>
+                        <button onClick={() => adminCompileFormations('Phase 1: Swiss Qualifiers')} className="bg-[#0072ef] hover:bg-[#0061cb] text-white text-xs font-bold px-4 py-2.5 rounded font-mono transition">
+                          🎲 Compile Phase 1: Swiss Pools
+                        </button>
+                        <button onClick={() => adminCompileFormations('Phase 2: Double Elimination Stage')} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-2.5 rounded font-mono transition">
+                          🏆 Compile Phase 2: Double Elimination Bracket
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={() => adminCompileFormations('Master Double Elimination Bracket')} className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold px-4 py-2.5 rounded font-mono transition">
+                        💥 Compile Master Double Elimination Bracket
+                      </button>
+                    )}
+
+                    <button onClick={adminClearAll} className="bg-red-950 border border-red-900 text-red-400 text-xs font-bold px-4 py-2.5 rounded hover:bg-red-900 transition font-mono">
+                      🚨 Clear Cloud Ledgers
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="space-y-3 pt-4">
@@ -477,7 +546,7 @@ export default function App() {
                   {matches.length === 0 && <p className="text-xs italic text-gray-600">No generated matches found to override.</p>}
                   {matches.map((m) => (
                     <div key={m.id} className="p-3 bg-[#0c0f12] rounded border border-[#202631] flex justify-between items-center text-xs font-mono">
-                      <span>{m.team1} vs {m.team2}</span>
+                      <span className="truncate max-w-xs">{m.team1} vs {m.team2} <span className="text-purple-500 text-[10px]">({m.statusLabel || 'P1'})</span></span>
                       <div className="flex gap-2">
                         <input type="number" value={m.score1} onChange={(e) => handleAdminScoreEdit(m.id, e.target.value, m.score2)} className="w-12 bg-[#13171e] text-center py-0.5 border text-white focus:outline-none focus:border-[#0072ef]" />
                         <input type="number" value={m.score2} onChange={(e) => handleAdminScoreEdit(m.id, m.score1, e.target.value)} className="w-12 bg-[#13171e] text-center py-0.5 border text-white focus:outline-none focus:border-[#0072ef]" />
