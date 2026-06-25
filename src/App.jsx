@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 
-// 🌐 CLOUD DATABASE PARAMETERS
-// Replace these placeholders with your real Supabase keys to launch the network pipeline!
+// 🌐 MASTER DATABASE CONFIGURATION
+const USE_CLOUD_DATABASE = true; 
+
+// Drop your real Supabase credentials inside these quotation marks
 const SUPABASE_URL = "https://clkasjxfifakbmnmaskm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_xhrTQjJjCUYxZ7MURLLZwA_v983Oj79";
 
-const isDatabaseConfigured = !SUPABASE_URL.includes("your-project-url") && SUPABASE_URL !== "";
 let supabase = null;
-
-if (isDatabaseConfigured) {
+if (USE_CLOUD_DATABASE && !SUPABASE_URL.includes("your-project-url")) {
   import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm').then((mod) => {
     supabase = mod.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   });
@@ -43,7 +43,7 @@ export default function App() {
     const cachedTeam = localStorage.getItem('unite_user_team');
     if (cachedTeam) { try { setMyTeam(JSON.parse(cachedTeam)); } catch(e) {} }
 
-    if (isDatabaseConfigured && supabase) {
+    if (USE_CLOUD_DATABASE && supabase) {
       const fetchCloudData = async () => {
         const { data: t } = await supabase.from('teams').select('*');
         const { data: m } = await supabase.from('matches').select('*');
@@ -99,7 +99,8 @@ export default function App() {
 
   const getCurrentActiveMatch = () => {
     if (matches.length === 0) return null;
-    const selected = matches.find(m => m.id === selectedMatchId);
+    // Uses standardized string matching to prevent integer vs string comparison friction
+    const selected = matches.find(m => String(m.id) === String(selectedMatchId));
     if (selected) return selected;
     const autoFound = matches.find(m => myTeam && (m.team1 === myTeam.name || m.team2 === myTeam.name));
     if (autoFound) return autoFound;
@@ -122,7 +123,7 @@ export default function App() {
       accessKey: secureAccessKey 
     };
 
-    if (isDatabaseConfigured && supabase) {
+    if (USE_CLOUD_DATABASE && supabase) {
       const { data } = await supabase.from('teams').insert([ { name: newTeamName, players: [...playerInputs], subs: activeSubs, accessKey: secureAccessKey } ]).select();
       if (data && data[0]) {
         setMyTeam(data[0]);
@@ -146,13 +147,13 @@ export default function App() {
     if (!chatInput.trim() || !myTeam || !currentMatchId) return;
 
     const msgPayload = { 
-      matchId: currentMatchId, 
+      matchId: String(currentMatchId), // Ensures data formats are parsed as uniform text
       sender: myTeam.name, 
       text: chatInput, 
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
     };
 
-    if (isDatabaseConfigured && supabase) {
+    if (USE_CLOUD_DATABASE && supabase) {
       await supabase.from('messages').insert([msgPayload]);
     } else {
       const updatedMsg = [...messages, msgPayload];
@@ -163,7 +164,7 @@ export default function App() {
   };
 
   const handlePlayerSubmitScore = async (matchId) => {
-    if (isDatabaseConfigured && supabase) {
+    if (USE_CLOUD_DATABASE && supabase) {
       await supabase.from('matches').update({ score1: playerScore1, score2: playerScore2, status: "Completed" }).eq('id', matchId);
     } else {
       const updatedMatches = matches.map(m => m.id === matchId ? { ...m, score1: playerScore1, score2: playerScore2, status: "Completed" } : m);
@@ -203,7 +204,7 @@ export default function App() {
     const updated = matches.map(match => match.id === matchId ? { ...match, score1: score1Val, score2: score2Val, status: "Completed" } : match);
     setMatches(updated); 
     persistLocally('local_matches', updated);
-    if (isDatabaseConfigured && supabase) {
+    if (USE_CLOUD_DATABASE && supabase) {
       supabase.from('matches').update({ score1: score1Val, score2: score2Val, status: "Completed" }).eq('id', matchId);
     }
   };
@@ -213,27 +214,36 @@ export default function App() {
 
     const generatedMatches = [];
     let matchCounter = 101;
+    
     for (let i = 0; i < teams.length; i += 2) {
       if (teams[i] && teams[i + 1]) {
-        generatedMatches.push({ id: 'm_' + (matchCounter++), team1: teams[i].name, team2: teams[i + 1].name, score1: 0, score2: 0, status: "Ongoing" });
+        // FIXED: Removed string custom id injection. Let database index auto-increments take over
+        generatedMatches.push({ team1: teams[i].name, team2: teams[i + 1].name, score1: 0, score2: 0, status: "Ongoing" });
       } else if (teams[i]) {
-        generatedMatches.push({ id: 'm_' + (matchCounter++), team1: teams[i].name, team2: "BYE FIELD", score1: 1, score2: 0, status: "Completed" });
+        generatedMatches.push({ team1: teams[i].name, team2: "BYE FIELD", score1: 1, score2: 0, status: "Completed" });
       }
     }
 
-    if (isDatabaseConfigured && supabase) {
-      await supabase.from('matches').delete().neq('id', 0);
-      await supabase.from('matches').insert(generatedMatches);
+    if (USE_CLOUD_DATABASE && supabase) {
+      // Clear old matches out
+      const { error: dErr } = await supabase.from('matches').delete().neq('id', 0);
+      if (dErr) { alert("❌ Database Clear Failure: " + dErr.message); return; }
+
+      // Insert clean structured pairings
+      const { error: iErr } = await supabase.from('matches').insert(generatedMatches);
+      if (iErr) { alert("❌ Database Insertion Failure: " + iErr.message); return; }
     } else {
-      setMatches(generatedMatches);
-      persistLocally('local_matches', generatedMatches);
+      // Local mode numbering fallback matching
+      const localMatches = generatedMatches.map((m, idx) => ({ ...m, id: matchCounter + idx }));
+      setMatches(localMatches);
+      persistLocally('local_matches', localMatches);
     }
     alert("⚡ Round 1 pairings generated successfully!");
   };
 
   const adminClearAll = async () => {
     if (window.confirm("🚨 Perform factory hard wipe sequence? This clears all entries completely.")) {
-      if (isDatabaseConfigured && supabase) {
+      if (USE_CLOUD_DATABASE && supabase) {
         await supabase.from('matches').delete().neq('id', 0);
         await supabase.from('teams').delete().neq('id', 0);
         await supabase.from('messages').delete().neq('id', 0);
@@ -255,12 +265,9 @@ export default function App() {
     <div className="min-h-screen bg-[#0c0f12] text-[#f3f4f6] font-sans antialiased">
       <header className="border-b border-[#202631] bg-[#13171e] px-6 py-3 flex flex-col lg:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4">
-          
-          {/* 🛠️ FIXED RESPONSIVE BADGE: It now reads your actual Supabase configurations! */}
-          <span className={`font-mono text-xs tracking-widest font-black px-2 py-1 rounded-sm text-white transition-all ${isDatabaseConfigured ? 'bg-green-600' : 'bg-amber-600'}`}>
-            {isDatabaseConfigured ? 'CLOUD-LIVE' : 'LOCAL-LIVE'}
+          <span className={`font-mono text-xs tracking-widest font-black px-2 py-1 rounded-sm text-white transition-all ${USE_CLOUD_DATABASE ? 'bg-green-600' : 'bg-amber-600'}`}>
+            {USE_CLOUD_DATABASE ? 'CLOUD-LIVE' : 'LOCAL-LIVE'}
           </span>
-          
           <div>
             <h1 className="text-md font-bold tracking-tight text-white">{tournamentTitle}</h1>
             <p className="text-[10px] font-mono text-[#9ca3af]">
@@ -395,7 +402,8 @@ export default function App() {
                       <span className="text-[10px] font-mono text-[#9ca3af]">{currentMatch.team1} vs {currentMatch.team2}</span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0c0f12]/50 text-xs font-mono">
-                      {messages.filter(msg => msg.matchId === currentMatch.id).map((msg, idx) => (
+                      {/* FIXED TYPECAST MATCHING RULE */}
+                      {messages.filter(msg => String(msg.matchId) === String(currentMatch.id)).map((msg, idx) => (
                         <div key={idx} className="border-l border-[#202631] pl-2 py-0.5">
                           <span className="text-blue-400 font-bold">{msg.sender}: </span>
                           <span className="text-gray-300">{msg.text}</span>
